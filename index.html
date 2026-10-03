@@ -24,6 +24,7 @@
   --bg:#0d161d; --surface:#132029; --fg:#e3ecf2; --muted:#93a6b3; --line:#243543;
   --accent:#66c0ef; --accent-soft:#16334a; --straw:#e2b94b; --straw-soft:#3a2f12; --done:#6fcf97; --done-soft:#173326; color-scheme:dark}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--body);margin:0}
 .wrap{max-width:1040px;margin:0 auto;padding-inline:16px;padding-block:28px 64px}
 h1{font:800 clamp(28px,5vw,44px)/1.05 var(--display);margin:0 0 8px;text-wrap:balance;letter-spacing:-.01em}
@@ -73,6 +74,18 @@ tr.dup td.n,tr.dup td.a{color:var(--muted)}
 .sync[data-s="ok"]{border-color:var(--done);color:var(--done);background:var(--done-soft)}
 .sync[data-s="busy"]{border-color:var(--accent);color:var(--accent)}
 .sync[data-s="err"]{border-color:var(--straw);color:var(--straw);background:var(--straw-soft)}
+.tabs{display:flex;gap:4px;overflow-x:auto;margin-top:10px;border-bottom:1px solid var(--line);scrollbar-width:thin}
+.tab{flex:0 0 auto;font:600 14px var(--body);padding:8px 12px;border:0;border-bottom:3px solid transparent;background:none;color:var(--muted);cursor:pointer;white-space:nowrap}
+.tab.on{color:var(--fg);border-bottom-color:var(--accent)}
+.tab:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.tab .tc{font:500 12px var(--mono);color:var(--muted);margin-left:4px}
+.cont{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:10px 14px;border:1px dashed var(--straw);background:var(--straw-soft);border-radius:10px;font-size:14px}
+.cont.pre{margin-bottom:10px}.cont.post{margin-top:10px}
+.cont button{font:600 13px var(--body);padding:5px 12px;border-radius:6px;border:1px solid var(--straw);background:var(--surface);color:var(--straw);cursor:pointer}
+.cont button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@keyframes flash{from{background:var(--accent-soft)}to{background:transparent}}
+tr.flash td{animation:flash 2.4s ease-out}
+@media (prefers-reduced-motion:reduce){tr.flash td{animation:none;background:var(--accent-soft)}}
 th.k input{width:17px;height:17px;accent-color:var(--done);cursor:pointer;margin:0}
 .upto{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px;font-size:13px;color:var(--muted)}
 .upto input{width:9em;font:13px var(--mono);padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--fg)}
@@ -126,6 +139,7 @@ footer{margin-top:40px;color:var(--muted);font-size:13px;max-width:80ch}
       <textarea id="io" rows="2" spellcheck="false" aria-label="Código de progresso" placeholder="Cola aqui um código de progresso"></textarea>
       <div class="xb"><button type="button" id="bcopy">Copiar código</button><button type="button" id="bimp">Importar código</button><span id="xmsg" role="status"></span></div>
     </details>
+    <div class="tabs" id="tabs" role="tablist" aria-label="Catálogos"></div>
     <nav class="chips" id="chips" aria-label="Temporadas"></nav>
   </div>
 
@@ -145,17 +159,26 @@ const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(seen))}catch(e){}};
 
 const blocks=[];
 for(const s of DATA.main.filter(s=>s.s!==0)){
-  blocks.push({id:"t"+s.s,label:"T"+s.s,name:ARCS[s.s]||("Temporada "+s.s),sub:"One Pace · Temporada "+s.s,
+  blocks.push({tab:"op",id:"t"+s.s,label:"T"+s.s,name:ARCS[s.s]||("Temporada "+s.s),sub:"One Pace · Temporada "+s.s,
     rows:s.rows.map(r=>({k:`op-${s.s}-${r.e}`,n:`S${s.s}E${r.e}`,t:r.t,c:r.ch,a:r.an,d:r.d,u:r.u,fz:r.fz}))});
-  if(s.s===32) blocks.push({id:"oni",label:"Onigashima",name:"Onigashima Paced",sub:"Catálogo à parte · fim do Wano",extra:true,
+  if(s.s===32) blocks.push({tab:"oni",id:"oni",label:"Onigashima",name:"Onigashima Paced",sub:"Catálogo à parte · fim do Wano",extra:true,
     rows:DATA.extras.pp_onipace.map(r=>({k:`oni-${r.s}-${r.e}`,n:`S${r.s}E${r.e}`,t:r.t,c:r.ch,a:r.an,d:r.d,x:r.dup}))});
 }
-blocks.push({id:"kuma",label:"Shaved Egghead",name:"Shaved Egghead & Kuma Cut",sub:"Catálogo à parte · resto do Egghead",extra:true,
+blocks.push({tab:"kuma",id:"kuma",label:"Shaved Egghead",name:"Shaved Egghead & Kuma Cut",sub:"Catálogo à parte · resto do Egghead",extra:true,
   rows:DATA.extras.pp_KUMA_SHAVED.map(r=>({k:`kuma-${r.s}-${r.e}`,n:`S${r.s}E${r.e}`,t:r.t,c:r.ch||"",a:r.an||"",d:r.d||"",x:r.dup}))});
 const sp=DATA.main.find(s=>s.s===0);
-if(sp) blocks.push({id:"t0",label:"Especiais",name:"Especiais",sub:"One Pace · Temporada 0 · opcional",
+if(sp) blocks.push({tab:"sp",id:"t0",label:"Especiais",name:"Especiais",sub:"One Pace · Temporada 0 · opcional",
   rows:sp.rows.map(r=>({k:`op-0-${r.e}`,n:`S0E${r.e}`,t:r.t,c:r.ch,a:r.an,d:r.d}))});
 
+const B=id=>blocks.find(b=>b.id===id)||{};
+Object.assign(B("t32"),{post:{txt:"O Wano não acaba aqui no One Pace. Continua no Onigashima Paced.",go:"oni-1-29",label:"Onigashima Paced S1E29 →"}});
+Object.assign(B("oni"),{pre:{txt:"Vens do One Pace S32E62? Os episódios 1 a 28 repetem o que já viste.",go:"oni-1-29",label:"Começar no S1E29 ↓"},
+  post:{txt:"Wano terminado. O Egghead continua no One Pace.",go:"op-33-1",label:"One Pace S33E1 →"}});
+Object.assign(B("t33"),{pre:{txt:"Vens do Onigashima Paced (S2E5 Final Curtain)? É aqui que continuas.",go:"oni-2-5",label:"← Onigashima Paced"},
+  post:{txt:"O One Pace ainda não acabou o Egghead. Continua no Shaved Egghead & Kuma Cut.",go:"kuma-1-4",label:"Shaved Egghead S1E4 →"}});
+Object.assign(B("kuma"),{pre:{txt:"Vens do One Pace S33E22? Os episódios 1 a 3 repetem o que já viste.",go:"kuma-1-4",label:"Começar no S1E4 ↓"},
+  post:{txt:"Fim das edições disponíveis. A partir daqui, anime original desde o ep. 1156.",go:null}});
+const TABS=[["op","One Pace"],["oni","Onigashima Paced"],["kuma","Shaved Egghead & Kuma Cut"],["sp","Especiais"]];
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const secs=d=>{const p=String(d||"").split(":").map(Number);return p.length===2?p[0]*60+p[1]:p.length===3?p[0]*3600+p[1]*60+p[2]:0};
 function range(rows){const ns=[];rows.forEach(r=>String(r.a).split(/[,;]/).forEach(p=>{const m=p.trim().match(/^(\d+)(?:-(\d+))?$/);if(m){ns.push(+m[1],+(m[2]||m[1]))}}));return ns.length?`anime ${Math.min(...ns)}–${Math.max(...ns)}`:""}
@@ -164,7 +187,8 @@ function render(){
   list.innerHTML=blocks.map(b=>{
     const real=b.rows.filter(r=>!(r.u||r.x)),h=real.reduce((s,r)=>s+secs(r.d),0);
     const meta=[`${real.length} eps`,range(real),h?`${(h/3600).toFixed(1).replace(".",",")} h`:""].filter(Boolean).join(" · ");
-    return `<section id="${b.id}" class="${b.extra?"extra":""}">
+    const cont=(c,w)=>c?`<div class="cont ${w}"><span>${esc(c.txt)}</span>${c.go?`<button type="button" data-go="${c.go}">${esc(c.label)}</button>`:""}</div>`:"";
+    return `<section id="${b.id}" data-tab="${b.tab}" class="${b.extra?"extra":""}">${cont(b.pre,"pre")}
       <div class="sh"><span class="sn">${esc(b.sub)}</span><h2>${esc(b.name)}</h2><span class="meta">${meta}</span></div>
       <div class="tblw"><table><thead><tr><th class="k"><input type="checkbox" class="all" id="all-${b.id}" data-b="${b.id}" aria-label="Marcar toda a secção ${esc(b.name)}" title="Marcar/desmarcar a secção toda"></th><th>Nuvio</th><th>Título no Nuvio</th><th>Capítulos</th><th>Anime original</th><th>Duração</th></tr></thead><tbody>
       ${b.rows.map(r=>`<tr data-k="${r.k}" data-s="${esc((r.n+" "+r.t+" "+r.c+" "+r.a).toLowerCase())}" class="${r.u?"un":""}${r.x?" dup":""}${seen[r.k]?" seen":""}">
@@ -172,8 +196,9 @@ function render(){
         <td class="n">${esc(r.n)}</td>
         <td class="t">${r.u?"Ainda não lançado":esc(r.t)}${r.x?`<span class="tag s">já visto no One Pace</span>`:""}${r.fz?`<span class="tag" title="No onepace.net: ${esc(r.fz)}">≈</span>`:""}</td>
         <td class="c">${esc(r.c)}</td><td class="a">${esc(r.a)}</td><td class="d">${esc(r.d)}</td></tr>`).join("")}
-      </tbody></table></div></section>`}).join("");
-  chips.innerHTML=blocks.map(b=>`<a class="chip${b.extra?" x":""}" id="chip-${b.id}" href="#${b.id}" title="${esc(b.name)}">${esc(b.label)}</a>`).join("");
+      </tbody></table></div>${cont(b.post,"post")}</section>`}).join("");
+  chips.innerHTML=blocks.filter(b=>b.tab==="op").map(b=>`<a class="chip${b.extra?" x":""}" id="chip-${b.id}" href="#${b.id}" title="${esc(b.name)}">${esc(b.label)}</a>`).join("");
+  document.getElementById("tabs").innerHTML=TABS.map(([t,l])=>`<button type="button" role="tab" class="tab" id="tab-${t}" data-tab="${t}">${esc(l)}<span class="tc" id="tc-${t}"></span></button>`).join("");
   update();
 }
 function update(){
@@ -182,6 +207,8 @@ function update(){
     const c=document.getElementById("chip-"+b.id);if(c)c.classList.toggle("full",bt>0&&bd===bt);
     const a=document.getElementById("all-"+b.id);if(a){a.checked=bt>0&&bd===bt;a.indeterminate=bd>0&&bd<bt}});
   document.getElementById("prog").textContent=`${done} / ${tot} vistos`;
+  TABS.forEach(([t])=>{let bt=0,bd=0;blocks.filter(b=>b.tab===t).forEach(b=>b.rows.forEach(r=>{if(r.u||r.x)return;bt++;if(seen[r.k])bd++}));
+    const el=document.getElementById("tc-"+t);if(el)el.textContent=` ${bd}/${bt}`;});
 }
 function setSeen(k,on){
   if(on)seen[k]=1;else delete seen[k];
@@ -214,13 +241,31 @@ document.getElementById("upto").addEventListener("submit",e=>{
   let n=0;flat.slice(0,idx+1).forEach(r=>{if(!(r.u||r.x)&&!seen[r.k]){setSeen(r.k,true);n++}});
   persist();update();umsg.textContent=`Marcados mais ${n} episódios, até S${+m[1]}E${+m[2]}.`;
 });
-document.getElementById("q").addEventListener("input",e=>{
-  const q=e.target.value.trim().toLowerCase();let any=false;
-  document.querySelectorAll("#list section").forEach(sec=>{let vis=0;
-    sec.querySelectorAll("tbody tr").forEach(tr=>{const ok=!q||tr.dataset.s.includes(q);tr.hidden=!ok;if(ok)vis++});
+let curTab="op";
+try{const t=localStorage.getItem("onepace-guide-tab");if(TABS.some(x=>x[0]===t))curTab=t}catch(e){}
+function applyView(){
+  const q=document.getElementById("q").value.trim().toLowerCase();let any=false;
+  document.querySelectorAll("#list section").forEach(sec=>{
+    if(!q){sec.querySelectorAll("tbody tr").forEach(tr=>tr.hidden=false);sec.hidden=sec.dataset.tab!==curTab;if(!sec.hidden)any=true;return}
+    let vis=0;sec.querySelectorAll("tbody tr").forEach(tr=>{const ok=tr.dataset.s.includes(q);tr.hidden=!ok;if(ok)vis++});
     sec.hidden=vis===0;if(vis)any=true});
+  document.querySelectorAll(".cont").forEach(c=>c.hidden=!!q);
   document.getElementById("empty").hidden=any;
-});
+  document.querySelectorAll("#tabs .tab").forEach(b=>{const on=!q&&b.dataset.tab===curTab;b.setAttribute("aria-selected",on?"true":"false");b.classList.toggle("on",on)});
+  chips.hidden=!!q||curTab!=="op";
+}
+function setTab(t){curTab=t;try{localStorage.setItem("onepace-guide-tab",t)}catch(e){};applyView()}
+function go(k){
+  const b=blocks.find(x=>x.rows.some(r=>r.k===k));if(!b)return;
+  document.getElementById("q").value="";setTab(b.tab);
+  const tr=list.querySelector(`tr[data-k="${k}"]`);if(!tr)return;
+  tr.scrollIntoView({block:"center",behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth"});
+  list.querySelectorAll("tr.flash").forEach(x=>x.classList.remove("flash"));void tr.offsetWidth;tr.classList.add("flash");
+}
+document.getElementById("q").addEventListener("input",applyView);
+document.getElementById("tabs").addEventListener("click",e=>{const b=e.target.closest(".tab");if(b){setTab(b.dataset.tab);window.scrollTo({top:document.getElementById("list").offsetTop-160})}});
+list.addEventListener("click",e=>{const b=e.target.closest("button[data-go]");if(b)go(b.dataset.go)});
+chips.addEventListener("click",e=>{const a=e.target.closest("a.chip");if(a&&curTab!=="op")setTab("op")});
 const io=document.getElementById("io"),xmsg=document.getElementById("xmsg");
 const encode=()=>"OP1:"+Object.keys(seen).sort().join(",");
 document.getElementById("bcopy").addEventListener("click",()=>{
@@ -278,6 +323,8 @@ function applyAll(){
   },()=>{syncRef=null;setSync("err","Sincronização parada; recarrega a página")});
 })();
 render();
+{const h=location.hash.slice(1),hb=h&&blocks.find(b=>b.id===h);if(hb)curTab=hb.tab;}
+applyView();
 </script>
 
 </body>
