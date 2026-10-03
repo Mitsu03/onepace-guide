@@ -61,6 +61,14 @@ tr.seen td.t{color:var(--muted);text-decoration:line-through;text-decoration-col
 tr.un td{color:var(--muted);font-style:italic}
 .tag{display:inline-block;font:500 11px var(--mono);padding:0 6px;border-radius:4px;background:var(--accent-soft);color:var(--accent);margin-left:6px;font-style:normal;cursor:help}
 .empty{color:var(--muted);padding:24px 0}
+.gosync{display:flex;flex-direction:column;gap:2px;margin-bottom:20px;padding:12px 14px;border-radius:10px;border:1px solid var(--accent);background:var(--accent-soft);color:var(--fg);text-decoration:none;font-size:14px}
+.gosync b{font-family:var(--display);font-weight:600;font-size:15px;color:var(--accent)}
+.gosync:hover b{text-decoration:underline}
+.gosync:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sync{font:500 12px var(--mono);padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.sync[data-s="ok"]{border-color:var(--done);color:var(--done);background:var(--done-soft)}
+.sync[data-s="busy"]{border-color:var(--accent);color:var(--accent)}
+.sync[data-s="err"]{border-color:var(--straw);color:var(--straw);background:var(--straw-soft)}
 th.k input{width:17px;height:17px;accent-color:var(--done);cursor:pointer;margin:0}
 .upto{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px;font-size:13px;color:var(--muted)}
 .upto input{width:9em;font:13px var(--mono);padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--fg)}
@@ -82,6 +90,10 @@ footer{margin-top:40px;color:var(--muted);font-size:13px;max-width:80ch}
 
 
 <div class="wrap">
+  <a class="gosync" id="gosync" href="https://claude.ai/artifact/NQZtoFYzUGwFpAonnaUNV9" target="_blank" rel="noopener">
+    <b>Queres os vistos iguais no PC e no telemóvel?</b>
+    <span>Abre a versão no Claude: guarda o progresso na tua conta (precisa de sessão iniciada em claude.ai). →</span>
+  </a>
   <h1>Guia One Pace</h1>
   <p class="lede">Episódios com os nomes exatos que aparecem no Nuvio (addon One Pace Premium), com os capítulos do manga e os episódios do anime original que cada um cobre. Marca os que já viste; fica guardado neste browser.</p>
 
@@ -95,6 +107,7 @@ footer{margin-top:40px;color:var(--muted);font-size:13px;max-width:80ch}
     <div class="tools">
       <input id="q" type="search" placeholder="Procurar título, capítulo ou ep. do anime (ex.: Chopper, 1013)" aria-label="Procurar">
       <span class="prog" id="prog"></span>
+      <span class="sync" id="sync" data-s="local">Só neste browser</span>
     </div>
     <form class="upto" id="upto">
       <label for="uptoIn">Vi tudo até</label>
@@ -180,14 +193,14 @@ list.addEventListener("click",e=>{
   if(cb.classList.contains("all")){
     const b=blocks.find(x=>x.id===cb.dataset.b);
     b.rows.forEach(r=>{if(!r.u)setSeen(r.k,cb.checked)});
-    lastCb=null;save();update();return;
+    lastCb=null;persist();update();return;
   }
   const all=order(),i=all.indexOf(cb);
   if(e.shiftKey&&lastCb&&all.includes(lastCb)){
     const j=all.indexOf(lastCb),[a,z]=i<j?[i,j]:[j,i];
     for(let x=a;x<=z;x++){const tr=all[x].closest("tr");if(!tr.hidden)setSeen(tr.dataset.k,cb.checked)}
   }else setSeen(cb.closest("tr").dataset.k,cb.checked);
-  lastCb=cb;save();update();
+  lastCb=cb;persist();update();
 });
 document.getElementById("upto").addEventListener("submit",e=>{
   e.preventDefault();
@@ -197,7 +210,7 @@ document.getElementById("upto").addEventListener("submit",e=>{
   const idx=flat.findIndex(r=>r.k===target);
   if(idx<0){umsg.textContent=`S${+m[1]}E${+m[2]} não existe no One Pace.`;return}
   let n=0;flat.slice(0,idx+1).forEach(r=>{if(!r.u&&!seen[r.k]){setSeen(r.k,true);n++}});
-  save();update();umsg.textContent=`Marcados mais ${n} episódios, até S${+m[1]}E${+m[2]}.`;
+  persist();update();umsg.textContent=`Marcados mais ${n} episódios, até S${+m[1]}E${+m[2]}.`;
 });
 document.getElementById("q").addEventListener("input",e=>{
   const q=e.target.value.trim().toLowerCase();let any=false;
@@ -218,10 +231,50 @@ document.getElementById("bimp").addEventListener("click",()=>{
   const v=io.value.trim();
   if(!v.startsWith("OP1:")){xmsg.textContent="Código inválido: tem de começar por OP1:";return}
   const keys=v.slice(4).split(",").map(s=>s.trim()).filter(k=>/^(op|oni|kuma)-\d+-\d+$/.test(k));
-  keys.forEach(k=>seen[k]=1);save();
+  keys.forEach(k=>seen[k]=1);persist();
   document.querySelectorAll("#list tbody tr").forEach(tr=>{const on=!!seen[tr.dataset.k];tr.classList.toggle("seen",on);const cb=tr.querySelector("input");if(cb)cb.checked=on});
   update();xmsg.textContent=`Importados ${keys.length} vistos.`;
 });
+// --- Sync to the viewer's account (only inside the Claude viewer) ---
+const syncEl=document.getElementById("sync");
+const setSync=(s,t)=>{syncEl.dataset.s=s;syncEl.textContent=t};
+let syncRef=null,writing=false,dirty=false,timer=null,first=true;
+function persist(){save();if(!syncRef)return;dirty=true;setSync("busy","A guardar…");clearTimeout(timer);timer=setTimeout(flush,700)}
+async function flush(){
+  if(writing||!dirty||!syncRef)return;
+  writing=true;dirty=false;
+  try{await syncRef.set({keys:Object.keys(seen).sort(),updatedAt:new Date().toISOString()});setSync("ok","Sincronizado na tua conta")}
+  catch(e){setSync("err","Não foi possível sincronizar");if(e&&(e.code==="invalid_argument"||e.code==="revoked"))syncRef=null}
+  writing=false;if(dirty)flush();
+}
+function applyAll(){
+  list.querySelectorAll("tbody tr").forEach(tr=>{const on=!!seen[tr.dataset.k];tr.classList.toggle("seen",on);const cb=tr.querySelector("td.k input");if(cb)cb.checked=on});
+  update();
+}
+(async()=>{
+  const c=window.claude;
+  if(!c||typeof c.use!=="function")return;            // GitHub Pages: keep the banner, local only
+  document.getElementById("gosync").hidden=true;
+  let db=null,user=null;
+  try{[db,user]=await Promise.all([c.use("db"),c.use("user")])}catch(e){}
+  const id=user?await user.id():null;
+  if(!db||!id){setSync("local","Só neste browser");return}
+  try{syncRef=db.doc(`data/users/${id}/progress`)}catch(e){return}
+  setSync("busy","A sincronizar…");
+  syncRef.onSnapshot(snap=>{
+    const remote=snap.exists&&Array.isArray(snap.data().keys)?snap.data().keys:[];
+    if(first){
+      first=false;
+      const merged={...seen};remote.forEach(k=>merged[k]=1);
+      const changed=Object.keys(merged).length!==remote.length;
+      seen=merged;save();applyAll();
+      if(changed){dirty=true;flush()}else setSync("ok","Sincronizado na tua conta");
+      return;
+    }
+    if(snap.metadata.hasPendingWrites||writing||dirty)return;
+    seen={};remote.forEach(k=>seen[k]=1);save();applyAll();setSync("ok","Sincronizado na tua conta");
+  },()=>{syncRef=null;setSync("err","Sincronização parada; recarrega a página")});
+})();
 render();
 </script>
 
