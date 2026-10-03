@@ -61,6 +61,13 @@ tr.seen td.t{color:var(--muted);text-decoration:line-through;text-decoration-col
 tr.un td{color:var(--muted);font-style:italic}
 .tag{display:inline-block;font:500 11px var(--mono);padding:0 6px;border-radius:4px;background:var(--accent-soft);color:var(--accent);margin-left:6px;font-style:normal;cursor:help}
 .empty{color:var(--muted);padding:24px 0}
+th.k input{width:17px;height:17px;accent-color:var(--done);cursor:pointer;margin:0}
+.upto{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px;font-size:13px;color:var(--muted)}
+.upto input{width:9em;font:13px var(--mono);padding:5px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--fg)}
+.upto button{font:500 13px var(--body);padding:5px 12px;border-radius:6px;border:1px solid var(--done);background:var(--done-soft);color:var(--done);cursor:pointer}
+.upto input:focus-visible,.upto button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.upto .hint{flex-basis:100%}
+@media (max-width:560px){.upto .hint{display:none}}
 .xfer{margin-top:8px;font-size:13px;color:var(--muted)}
 .xfer summary{cursor:pointer;width:max-content}
 .xfer p{margin:6px 0}
@@ -89,6 +96,13 @@ footer{margin-top:40px;color:var(--muted);font-size:13px;max-width:80ch}
       <input id="q" type="search" placeholder="Procurar título, capítulo ou ep. do anime (ex.: Chopper, 1013)" aria-label="Procurar">
       <span class="prog" id="prog"></span>
     </div>
+    <form class="upto" id="upto">
+      <label for="uptoIn">Vi tudo até</label>
+      <input id="uptoIn" type="text" inputmode="text" placeholder="ex.: S12E5" autocomplete="off">
+      <button type="submit">Marcar</button>
+      <span class="hint">Dica: Shift+clique marca um intervalo; a caixa no topo de cada tabela marca a secção toda.</span>
+      <span id="umsg" role="status"></span>
+    </form>
     <details class="xfer" id="xfer">
       <summary>Transferir progresso</summary>
       <p>Os vistos ficam só neste browser. Para os levar para outro sítio, copia o código aqui e cola-o no outro.</p>
@@ -137,7 +151,7 @@ function render(){
     const meta=[`${real.length} eps`,range(real),h?`${(h/3600).toFixed(1).replace(".",",")} h`:""].filter(Boolean).join(" · ");
     return `<section id="${b.id}" class="${b.extra?"extra":""}">
       <div class="sh"><span class="sn">${esc(b.sub)}</span><h2>${esc(b.name)}</h2><span class="meta">${meta}</span></div>
-      <div class="tblw"><table><thead><tr><th><span class="sr" aria-hidden="true">✓</span></th><th>Nuvio</th><th>Título no Nuvio</th><th>Capítulos</th><th>Anime original</th><th>Duração</th></tr></thead><tbody>
+      <div class="tblw"><table><thead><tr><th class="k"><input type="checkbox" class="all" id="all-${b.id}" data-b="${b.id}" aria-label="Marcar toda a secção ${esc(b.name)}" title="Marcar/desmarcar a secção toda"></th><th>Nuvio</th><th>Título no Nuvio</th><th>Capítulos</th><th>Anime original</th><th>Duração</th></tr></thead><tbody>
       ${b.rows.map(r=>`<tr data-k="${r.k}" data-s="${esc((r.n+" "+r.t+" "+r.c+" "+r.a).toLowerCase())}" class="${r.u?"un":""}${seen[r.k]?" seen":""}">
         <td class="k">${r.u?"":`<input type="checkbox" id="c-${r.k}" aria-label="Visto ${esc(r.n)}"${seen[r.k]?" checked":""}>`}</td>
         <td class="n">${esc(r.n)}</td>
@@ -150,14 +164,40 @@ function render(){
 function update(){
   let tot=0,done=0;
   blocks.forEach(b=>{let bt=0,bd=0;b.rows.forEach(r=>{if(r.u)return;bt++;if(seen[r.k])bd++});tot+=bt;done+=bd;
-    const c=document.getElementById("chip-"+b.id);if(c)c.classList.toggle("full",bt>0&&bd===bt)});
+    const c=document.getElementById("chip-"+b.id);if(c)c.classList.toggle("full",bt>0&&bd===bt);
+    const a=document.getElementById("all-"+b.id);if(a){a.checked=bt>0&&bd===bt;a.indeterminate=bd>0&&bd<bt}});
   document.getElementById("prog").textContent=`${done} / ${tot} vistos`;
 }
-list.addEventListener("change",e=>{
+function setSeen(k,on){
+  if(on)seen[k]=1;else delete seen[k];
+  const tr=list.querySelector(`tr[data-k="${k}"]`);if(!tr)return;
+  tr.classList.toggle("seen",on);const cb=tr.querySelector("td.k input");if(cb)cb.checked=on;
+}
+const order=()=>[...list.querySelectorAll("tbody td.k input")];
+let lastCb=null;
+list.addEventListener("click",e=>{
   const cb=e.target;if(cb.type!=="checkbox")return;
-  const tr=cb.closest("tr"),k=tr.dataset.k;
-  if(cb.checked)seen[k]=1;else delete seen[k];
-  tr.classList.toggle("seen",cb.checked);save();update();
+  if(cb.classList.contains("all")){
+    const b=blocks.find(x=>x.id===cb.dataset.b);
+    b.rows.forEach(r=>{if(!r.u)setSeen(r.k,cb.checked)});
+    lastCb=null;save();update();return;
+  }
+  const all=order(),i=all.indexOf(cb);
+  if(e.shiftKey&&lastCb&&all.includes(lastCb)){
+    const j=all.indexOf(lastCb),[a,z]=i<j?[i,j]:[j,i];
+    for(let x=a;x<=z;x++){const tr=all[x].closest("tr");if(!tr.hidden)setSeen(tr.dataset.k,cb.checked)}
+  }else setSeen(cb.closest("tr").dataset.k,cb.checked);
+  lastCb=cb;save();update();
+});
+document.getElementById("upto").addEventListener("submit",e=>{
+  e.preventDefault();
+  const umsg=document.getElementById("umsg"),m=document.getElementById("uptoIn").value.trim().toUpperCase().match(/^S?(\d+)\s*[EX]\s*(\d+)$/);
+  if(!m){umsg.textContent="Escreve no formato S12E5.";return}
+  const target=`op-${+m[1]}-${+m[2]}`,flat=blocks.filter(b=>b.id!=="t0").flatMap(b=>b.rows);
+  const idx=flat.findIndex(r=>r.k===target);
+  if(idx<0){umsg.textContent=`S${+m[1]}E${+m[2]} não existe no One Pace.`;return}
+  let n=0;flat.slice(0,idx+1).forEach(r=>{if(!r.u&&!seen[r.k]){setSeen(r.k,true);n++}});
+  save();update();umsg.textContent=`Marcados mais ${n} episódios, até S${+m[1]}E${+m[2]}.`;
 });
 document.getElementById("q").addEventListener("input",e=>{
   const q=e.target.value.trim().toLowerCase();let any=false;
